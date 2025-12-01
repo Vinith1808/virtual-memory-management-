@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Virtual Memory Management Simulator</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<style>
+    body {
+        font-family: Arial, sans-serif;
+        background: #f4f7fb;
+        color: #333;
+        margin: 0;
+        padding: 20px;
+    }
+    h1 {
+        text-align: center;
+        color: #1a73e8;
+    }
+    .container {
+        max-width: 1000px;
+        background: white;
+        margin: 20px auto;
+        padding: 20px;
+        border-radius: 12px;
+        box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+    }
+    label {
+        font-weight: bold;
+    }
+    input, select, button {
+        padding: 8px;
+        margin: 8px 0;
+        width: 100%;
+        border-radius: 6px;
+        border: 1px solid #ccc;
+    }
+    button {
+        background-color: #1a73e8;
+        color: white;
+        cursor: pointer;
+    }
+    button:hover {
+        background-color: #155ab6;
+    }
+    table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-top: 15px;
+    }
+    th, td {
+        border: 1px solid #ddd;
+        text-align: center;
+        padding: 8px;
+    }
+    th {
+        background-color: #1a73e8;
+        color: white;
+    }
+    .hit {
+        background-color: #a8e6a2;
+    }
+    .fault {
+        background-color: #f7a1a1;
+    }
+    canvas {
+        margin-top: 30px;
+        width: 100% !important;
+        height: 400px !important;
+    }
+</style>
+</head>
+<body>
+    <h1>Virtual Memory Management Simulator</h1>
+    <div class="container">
+        <label>Enter Reference String (space-separated):</label>
+        <input type="text" id="referenceString" placeholder="e.g., 7 0 1 2 0 3 0 4 2 3 0 3 2">
+        
+        <label>Enter Number of Frames:</label>
+        <input type="number" id="frames" min="1" placeholder="e.g., 3">
+        
+        <label>Select Algorithm:</label>
+        <select id="algorithm">
+            <option value="FIFO">FIFO</option>
+            <option value="LRU">LRU</option>
+            <option value="Optimal">Optimal</option>
+        </select>
+        
+        <button onclick="simulate()">Run Simulation</button>
+        
+        <div id="output"></div>
+        <canvas id="comparisonChart"></canvas>
+    </div>
+
+<script>
+function simulate() {
+    const refStr = document.getElementById("referenceString").value.trim().split(/\s+/).map(Number);
+    const frameCount = parseInt(document.getElementById("frames").value);
+    const algo = document.getElementById("algorithm").value;
+    const outputDiv = document.getElementById("output");
+
+    if (!refStr.length || !frameCount) {
+        outputDiv.innerHTML = "<p style='color:red;'>Please enter valid inputs.</p>";
+        return;
+    }
+
+    let results = {};
+    const algorithms = ["FIFO", "LRU", "Optimal"];
+
+    algorithms.forEach(a => {
+        results[a] = runAlgorithm(refStr, frameCount, a);
+    });
+
+    const selected = results[algo];
+    let html = `<h3>Algorithm Used: ${algo}</h3>
+                <table>
+                <tr><th>Step</th><th>Reference</th>`;
+    for (let i = 0; i < frameCount; i++) html += `<th>Frame ${i + 1}</th>`;
+    html += `<th>Result</th></tr>`;
+
+    selected.steps.forEach(r => {
+        html += `<tr><td>${r.step}</td><td>${r.page}</td>`;
+        for (let i = 0; i < frameCount; i++) {
+            html += `<td>${r.frames[i] !== undefined ? r.frames[i] : ""}</td>`;
+        }
+        html += `<td class="${r.hit ? 'hit' : 'fault'}">${r.hit ? 'Hit' : 'Fault'}</td></tr>`;
+    });
+
+    html += `</table>
+             <p><b>Total Hits:</b> ${selected.hits}</p>
+             <p><b>Total Faults:</b> ${selected.faults}</p>
+             <p><b>Hit Ratio:</b> ${(selected.hits / refStr.length).toFixed(2)}</p>
+             <p><b>Fault Ratio:</b> ${(selected.faults / refStr.length).toFixed(2)}</p>`;
+
+    outputDiv.innerHTML = html;
+
+    drawChart(results);
+}
+
+function runAlgorithm(refStr, frameCount, algo) {
+    let frames = [];
+    let hits = 0, faults = 0;
+    let steps = [];
+
+    for (let i = 0; i < refStr.length; i++) {
+        let page = refStr[i];
+        let hit = frames.includes(page);
+
+        if (!hit) {
+            faults++;
+            if (frames.length < frameCount) {
+                frames.push(page);
+            } else {
+                if (algo === "FIFO") {
+                    frames.shift();
+                } else if (algo === "LRU") {
+                    let lastUsed = {};
+                    for (let j = 0; j < frames.length; j++) {
+                        let idx = i - 1;
+                        while (idx >= 0 && refStr[idx] !== frames[j]) idx--;
+                        lastUsed[frames[j]] = idx;
+                    }
+                    let lruPage = Object.keys(lastUsed).reduce((a, b) => lastUsed[a] < lastUsed[b] ? a : b);
+                    frames.splice(frames.indexOf(parseInt(lruPage)), 1);
+                } else if (algo === "Optimal") {
+                    let future = refStr.slice(i + 1);
+                    let indexes = frames.map(f => future.indexOf(f));
+                    let replaceIndex = indexes.indexOf(-1) !== -1 ? indexes.indexOf(-1) : indexes.indexOf(Math.max(...indexes));
+                    frames.splice(replaceIndex, 1);
+                }
+                frames.push(page);
+            }
+        } else {
+            hits++;
+            if (algo === "LRU") {
+                frames.splice(frames.indexOf(page), 1);
+                frames.push(page);
+            }
+        }
+        steps.push({ step: i + 1, page, frames: [...frames], hit });
+    }
+    return { hits, faults, steps };
+}
+
+function drawChart(results) {
+    const ctx = document.getElementById('comparisonChart').getContext('2d');
+    const labels = Object.keys(results);
+    const hits = labels.map(a => results[a].hits);
+    const faults = labels.map(a => results[a].faults);
+
+    if (window.pageChart) window.pageChart.destroy();
+
+    window.pageChart = new Chart(ctx, {
+        type: 'bar',
+        data: {
+            labels,
+            datasets: [
+                {
+                    label: 'Page Hits',
+                    data: hits,
+                    backgroundColor: '#4CAF50'
+                },
+                {
+                    label: 'Page Faults',
+                    data: faults,
+                    backgroundColor: '#F44336'
+                }
+            ]
+        },
+        options: {
+            responsive: true,
+            plugins: {
+                title: {
+                    display: true,
+                    text: 'Comparison of Page Hits and Faults for FIFO, LRU, and Optimal'
+                },
+                legend: {
+                    position: 'bottom'
+                }
+            },
+            scales: {
+                y: {
+                    beginAtZero: true
+                }
+            }
+        }
+    });
+}
+</script>
+</body>
+</html>
